@@ -32,18 +32,28 @@ def agent_node(state: AtlasState) -> dict:
     if state.get("tool_call_count", 0) >= settings.max_tool_calls:
         return {"step_count": step, "force_answer": True}
 
+    tool_history = state.get("tool_calls", [])
     retry_note = ""
-    prior = state.get("tool_calls", [])
-    if prior and prior[-1].get("error"):
+    if tool_history and tool_history[-1].get("error"):
         retry_note = (
-            f"\n\nYour previous tool call failed validation: {prior[-1]['error']}\n"
+            f"\n\nYour previous tool call failed validation: {tool_history[-1]['error']}\n"
             f"Fix the arguments, or don't call a tool if you can't."
+        )
+    elif tool_history:
+        # A tool already ran this turn. Without this in the prompt the model
+        # re-issues the identical call until max_tool_calls is exhausted —
+        # wasted steps (NFR-B1) and duplicate entries in the UI/log.
+        retry_note = (
+            "\n\nA tool has ALREADY been called this turn (result below). "
+            "Do not repeat the same call — answer from the result above, "
+            "or call a *different* tool only if one is genuinely needed."
         )
 
     prompt = (
         f"{TOOL_DECISION_SYSTEM_PROMPT}{retry_note}\n\n"
         f"Recent conversation:\n{history_as_text(state.get('chat_history', []))}\n\n"
-        f"Retrieved context:\n{format_chunks(state.get('retrieved_chunks', []))}\n\n"
+        f"Retrieved context:\n{format_chunks(state.get('retrieved_chunks', []))}\n"
+        f"{format_tool_results(tool_history)}\n\n"
         f"Question: {state['question']}"
     )
 

@@ -26,9 +26,20 @@ Evaluations and logs:
 
 ```bash
 python tests/evaluate.py      # DeepEval → outputs/eval_report.json
-bash scripts/reset.sh         # wipe + rebuild the vector index
+bash scripts/reset.sh         # wipe + rebuild the vector index (FR-B8, ~70s)
 grep <run_id> outputs/run_logs.jsonl   # full timeline of one question
 ```
+
+### Offline tests (no API key needed)
+
+```bash
+pytest tests/test_graph.py -q
+```
+
+These stub the three Gemini handles and drive the real graph end-to-end:
+routing + low-confidence fallback, cross-turn memory, tool loop, Pydantic
+validation recovery, the step-limit fallback node, and run-log completeness.
+Use them to confirm a refactor didn't break the wiring before spending quota.
 
 ---
 
@@ -113,9 +124,11 @@ atlas-enterprise-assistant/
 ├── src/
 │   ├── settings.py            ← all tunable values (paths, models, thresholds)
 │   ├── prompts.py             ← router / tool / answer prompts
+│   ├── prompt_context.py      ← renders state → prompt blocks (history/chunks/tools)
 │   ├── state.py               ← typed graph state + RouterDecision
 │   ├── graph.py               ← LangGraph assembly + run_turn()
-│   ├── graph_nodes.py         ← the 8 node functions
+│   ├── graph_nodes.py         ← input side: memory_loader, router, retriever, writer
+│   ├── agent_nodes.py         ← agentic side: agent ⇄ tools, answer, fallback
 │   ├── llm_setup.py           ← Gemini client + tool binding
 │   ├── judge.py               ← DeepEval judge wrapper (Arabic-capable)
 │   ├── retriever.py           ← domain-filtered + multi-domain retrieval
@@ -124,10 +137,12 @@ atlas-enterprise-assistant/
 │   ├── chunking.py            ← language detection + splitter
 │   ├── embeddings.py          ← bge-m3 wrapper
 │   ├── vectorstore.py         ← Qdrant index build + search
-│   ├── tools.py               ← 3 typed tools (Pydantic schemas)
+│   ├── tools.py               ← 3 typed tools (Pydantic schemas + logic)
+│   ├── corpus_facts.py        ← locked corpus numbers (caps, leave types)
 │   └── logging_setup.py       ← run_id + structured JSONL events
 ├── tests/
 │   ├── evaluate.py            ← DeepEval script → outputs/eval_report.json
+│   ├── test_graph.py          ← offline wiring tests (stubbed LLM, no key)
 │   └── eval_cases.jsonl       ← 10 gold questions
 ├── data/
 │   ├── CORPUS_README.md       ← locked facts (read before changing prompts)
@@ -138,7 +153,10 @@ atlas-enterprise-assistant/
 │   └── 03_eval_walkthrough.ipynb ← DeepEval results discussion
 ├── outputs/                   ← run_logs.jsonl, eval_report.json, final_report.md
 ├── docs/                      ← architecture.png, demo.gif
-└── scripts/reset.sh           ← wipe index + rebuild
+└── scripts/
+    ├── reset.sh               ← wipe index + rebuild (FR-B8)
+    ├── smoke_demo.py          ← the brief's 3-turn demo scenario, checked
+    └── mem_check.py           ← NFR-B4 memory measurement
 ```
 
 ## Development

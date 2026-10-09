@@ -8,6 +8,8 @@ guideline and makes the node layout easier to navigate.
 
 from __future__ import annotations
 
+import json
+
 
 def history_as_text(history: list[dict], max_turns: int = 6) -> str:
     """Render the last few chat turns as plain text for prompt context.
@@ -40,13 +42,22 @@ def format_chunks(chunks: list[dict]) -> str:
 
 
 def format_tool_results(tool_calls: list[dict]) -> str:
-    """Render successful tool results for the answer prompt.
+    """Render tool outcomes for the agent/answer prompts.
 
-    Returns an empty string when no tool produced a result, so callers can
-    concatenate unconditionally.
+    JSON (not Python's repr) so nested results stay readable and Arabic text
+    is not escaped to \\uXXXX — plus the error cases, which the agent needs in
+    order to retry a failed call (FR-F2).
+
+    Returns an empty string when no tool has run, so callers can concatenate
+    unconditionally.
     """
-    successful = [tc for tc in tool_calls if tc.get("result") is not None]
-    if not successful:
+    if not tool_calls:
         return ""
-    parts = [f"Tool `{tc['tool']}` result: {tc['result']}" for tc in successful]
-    return "\n\n" + "\n\n".join(parts)
+    parts = []
+    for tc in tool_calls:
+        if tc.get("error"):
+            body = f"FAILED validation: {tc['error']}"
+        else:
+            body = json.dumps(tc.get("result"), ensure_ascii=False)
+        parts.append(f"Tool `{tc['tool']}` -> {body}")
+    return "\n\nTool results so far:\n" + "\n".join(parts)

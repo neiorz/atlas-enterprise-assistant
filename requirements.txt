@@ -40,3 +40,4 @@ ipykernel==7.4.0
 # --- Dev tooling (NFR-C4 black, NFR-C6 ruff) ---
 black==26.10.0
 ruff==0.16.10
+pytest==9.1.1

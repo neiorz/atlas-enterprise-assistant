@@ -5,8 +5,8 @@ Qdrant vector store (FR-B7, FR-B8, FR-C1..C4).
 
 from __future__ import annotations
 
+import atexit
 import uuid
-from functools import lru_cache
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
@@ -15,21 +15,43 @@ from src.embeddings import embed_query, embed_texts
 from src.ingest import Chunk, build_chunks
 from src.settings import settings
 
+# One client per process, reused across searches. Opening a local-path Qdrant
+# client involves storage/lock setup, so doing it per query would add
+# avoidable latency to every turn (NFR-B1) and can collide with a second
+# client on the same path. Cloud mode reuses it too — a client is cheap to
+# keep around either way.
+_client: QdrantClient | None = None
 
-@lru_cache(maxsize=1)
+
 def get_client() -> QdrantClient:
-    """One client per process, reused across searches.
+    global _client
+    if _client is None:
+        if settings.qdrant_url:
+            _client = QdrantClient(
+                url=settings.qdrant_url, api_key=settings.qdrant_api_key or None
+            )
+        else:
+            _client = QdrantClient(path=settings.qdrant_local_path)
+    return _client
 
-    Opening a local-path Qdrant client involves storage/lock setup, so doing
-    it per query would add avoidable latency to every turn (NFR-B1) and can
-    collide with a second client on the same path. Cloud mode uses the same
-    caching since a client is cheap to reuse either way.
+
+@atexit.register
+def _close_client() -> None:
+    """Release the local storage lock while the interpreter is still healthy.
+
+    Left to QdrantClient.__del__, the finalizer runs during interpreter
+    shutdown and spews ``sys.meta_path is None`` at the end of every CLI run
+    and pytest session — raw tracebacks are exactly what NFR-D3 forbids.
     """
-    if settings.qdrant_url:
-        return QdrantClient(
-            url=settings.qdrant_url, api_key=settings.qdrant_api_key or None
-        )
-    return QdrantClient(path=settings.qdrant_local_path)
+    global _client
+    if _client is not None:
+        try:
+            _client.close()
+        # Exit path only: close() failing here must not mask the real exit
+        # status or print a traceback (NFR-D3).
+        except Exception:  # noqa: BLE001, S110
+            pass
+        _client = None
 
 
 def collection_exists(client: QdrantClient) -> bool:
