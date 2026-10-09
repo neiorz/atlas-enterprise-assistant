@@ -31,7 +31,9 @@ DEADLINE=$(( $(date +%s) + ${2:-3600} ))
 # byte count suggests and silently starts *succeeding* — spending its whole
 # prompt on the way in and burning exactly the budget being waited for.
 SENT="The hotel allowance for a domestic trip is one thousand five hundred Egyptian pounds per night, taxi fares are capped at eight hundred pounds per leg, and a team dinner costs two thousand pounds per person under the expense policy. "
-PROMPT=$(yes "$SENT" | head -n 130 | tr -d '\n')
+# 150 lines ~= 34.8k chars ~= 6,470 tokens (measured 5.38 chars/token): above
+# TARGET=5600, still below the ~7k per-request input ceiling.
+PROMPT=$(yes "$SENT" | head -n 150 | tr -d '\n')
 
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   OUT=$(curl -s -m 60 -w '\n%{http_code}' "$URL" \
