@@ -1,0 +1,31 @@
+# Environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Secrets (FR-A3, NFR-E1)
+.env
+
+# Vector index + generated data (FR-A5)
+data/qdrant_index/
+data/policy_index.json
+
+# Generated outputs
+outputs/run_logs.jsonl
+outputs/eval_report.json
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Chainlit auto-generated default config/translations (regenerated on run)
+.chainlit/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
