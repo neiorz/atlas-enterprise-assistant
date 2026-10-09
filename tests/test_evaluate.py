@@ -113,9 +113,14 @@ def test_gold_context_flags_a_missing_source(evaluate):
 
 def test_api_key_guard_rejects_the_placeholder(evaluate, monkeypatch):
     monkeypatch.setattr(evaluate.settings, "google_api_key", "")
+    monkeypatch.setattr(evaluate.settings, "groq_api_key", "")
     assert evaluate._api_key_ready() is False
     monkeypatch.setattr(evaluate.settings, "google_api_key", "your-google-api-key-here")
     assert evaluate._api_key_ready() is False, "untouched .env.example must not pass"
+    # Either provider on its own is enough — both run on free tiers.
+    monkeypatch.setattr(evaluate.settings, "groq_api_key", "gskRealLookingKey123")
+    assert evaluate._api_key_ready() is True, "a Groq key alone must be accepted"
+    monkeypatch.setattr(evaluate.settings, "groq_api_key", "")
     monkeypatch.setattr(evaluate.settings, "google_api_key", "AIzaRealLookingKey123")
     assert evaluate._api_key_ready() is True
 
@@ -205,10 +210,12 @@ def test_limit_flag_truncates_cases(evaluate, stubbed, monkeypatch):
 def test_main_fails_cleanly_without_a_key(evaluate, monkeypatch, capsys):
     """No traceback — an actionable message and exit 1 (NFR-D4 spirit)."""
     monkeypatch.setattr(evaluate.settings, "google_api_key", "your-google-api-key-here")
+    monkeypatch.setattr(evaluate.settings, "groq_api_key", "your-groq-api-key-here")
     monkeypatch.setattr(sys, "argv", ["evaluate.py"])
     assert evaluate.main() == 1
     err = capsys.readouterr().err
     assert "aistudio.google.com/apikey" in err
+    assert "console.groq.com" in err
     assert "Traceback" not in err
 
 

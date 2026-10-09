@@ -20,6 +20,14 @@ from src.settings import settings
 from src.state import AtlasState
 from src.tools import TOOL_REGISTRY
 
+# How much of each retrieved chunk the *agent* node sees. It only has to
+# judge whether a tool would add anything, not write the answer, so a short
+# slice is enough. generate_answer still gets the full text. Free-tier Groq
+# refills its token budget at ~133 tokens/second, so re-sending all five
+# full chunks to two different nodes per turn is the single biggest cause of
+# NFR-B1 overrun.
+AGENT_CONTEXT_CHARS = 220
+
 
 def agent_node(state: AtlasState) -> dict:
     """Decide whether a tool call would help; if so, stage it for tools_node (FR-F3).
@@ -52,7 +60,8 @@ def agent_node(state: AtlasState) -> dict:
     prompt = (
         f"{TOOL_DECISION_SYSTEM_PROMPT}{retry_note}\n\n"
         f"Recent conversation:\n{history_as_text(state.get('chat_history', []))}\n\n"
-        f"Retrieved context:\n{format_chunks(state.get('retrieved_chunks', []))}\n"
+        f"Retrieved context:\n"
+        f"{format_chunks(state.get('retrieved_chunks', []), AGENT_CONTEXT_CHARS)}\n"
         f"{format_tool_results(tool_history)}\n\n"
         f"Question: {state['question']}"
     )

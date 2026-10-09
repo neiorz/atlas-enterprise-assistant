@@ -28,17 +28,31 @@ def history_as_text(history: list[dict], max_turns: int = 6) -> str:
     return "\n".join(f"{t['role'].upper()}: {t['content']}" for t in recent)
 
 
-def format_chunks(chunks: list[dict]) -> str:
+def format_chunks(chunks: list[dict], max_chars_per_chunk: int | None = None) -> str:
     """Render retrieved chunks as a labeled context block.
 
     Each block is prefixed with its source filename so the answer prompt can
     tie every fact back to a real document (FR-G1, FR-G2).
+
+    Args:
+        max_chars_per_chunk: truncate each chunk to this many characters.
+            The agent node passes a small value because it only has to judge
+            whether a tool would add anything; the answer node keeps full
+            text so it can quote accurately. Every duplicated token costs
+            real latency: free-tier Groq refills its token budget at only
+            ~133 tokens/second, so re-sending full context twice per turn is
+            the single biggest contributor to NFR-B1 overrun.
     """
     if not chunks:
         return "(no relevant documents retrieved)"
-    return "\n\n---\n\n".join(
-        f"[Source: {c['source_filename']}]\n{c['text']}" for c in chunks
-    )
+
+    def _render(chunk: dict) -> str:
+        text = chunk["text"]
+        if max_chars_per_chunk is not None and len(text) > max_chars_per_chunk:
+            text = text[:max_chars_per_chunk].rstrip() + " …[truncated]"
+        return f"[Source: {chunk['source_filename']}]\n{text}"
+
+    return "\n\n---\n\n".join(_render(c) for c in chunks)
 
 
 def format_tool_results(tool_calls: list[dict]) -> str:

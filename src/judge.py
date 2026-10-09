@@ -1,14 +1,17 @@
-"""Gemini-backed judge LLM for DeepEval (FR-J5).
+"""Judge LLM for DeepEval (FR-J5).
 
 DeepEval's metrics accept any object implementing ``DeepEvalBaseLLM`` (the
 class is spelled with uppercase "LLM" from DeepEval 2.x onward — older
-tutorials showing ``DeepEvalBaseLlm`` no longer import). We wrap our existing
-Gemini client rather than relying on DeepEval's default OpenAI judge because:
+tutorials showing ``DeepEvalBaseLlm`` no longer import). We wrap our own
+answer-path client rather than relying on DeepEval's default OpenAI judge
+because:
 
 1. FR-J5 — the judge MUST handle Arabic; 3 of the 10 gold cases are Arabic
-   and every metric is scored on them. Gemini 2.0 Flash reads Arabic natively.
-2. NFR-A1 — no second provider or paid key: the whole project runs on the one
-   free-tier GOOGLE_API_KEY.
+   and every metric is scored on them. Both configured backends (Gemini 2.0
+   Flash, Qwen3.8-27B) read Arabic natively.
+2. NFR-A1 — no second provider or paid key: the judge reuses whichever
+   free-tier key already drives the answer path, decided by
+   settings.resolved_provider.
 
 The judge gets its own rate-limiter instance (separate from the answer LLM's
 in src/llm_setup.py) so the 50 back-to-back metric calls of a full evaluation
@@ -18,43 +21,41 @@ never starve a live chat turn, and vice versa.
 from __future__ import annotations
 
 from deepeval.models import DeepEvalBaseLLM
-from langchain_core.rate_limiters import InMemoryRateLimiter
-from langchain_google_genai import ChatGoogleGenerativeAI
 
+from src.llm_setup import JUDGE_MAX_TOKENS, build_chat_llm, make_rate_limiter
 from src.settings import settings
 
-# DeepEval fires metric calls back-to-back (5 metrics x 10 cases = 50 calls).
-# 0.25 rps == Gemini free tier's ~15 requests/minute; a burst bucket of 5 lets
-# one test case's five metrics flow without waiting between each, while the
-# sustained rate still averages out under the free-tier ceiling.
-_judge_rate_limiter = InMemoryRateLimiter(
-    requests_per_second=0.25,
-    check_every_n_seconds=0.1,
-    max_bucket_size=5,
+# DeepEval fires metric calls back-to-back (5 metrics x 10 cases = 50 calls),
+# so the judge gets its own limiter and cannot starve a live chat turn (or
+# vice versa). On Groq the pacing matters much more: free-tier Groq meters
+# *output* tokens per minute (~1000) and answers every over-budget request
+# with a 429, so we trade a slow, steady evaluation for a thrashing one.
+_GROQ = settings.resolved_provider == "groq"
+_judge_rate_limiter = make_rate_limiter(
+    burst=2 if _GROQ else 5,
+    requests_per_second=0.12 if _GROQ else None,
 )
 
 
-class GeminiJudge(DeepEvalBaseLLM):
-    """Adapts langchain's ChatGoogleGenerativeAI to DeepEval's judge interface."""
+class JudgeLLM(DeepEvalBaseLLM):
+    """Adapts our LangChain chat model to DeepEval's judge interface."""
 
     def __init__(self) -> None:
-        self._llm = ChatGoogleGenerativeAI(
-            model=settings.gemini_judge_model,
+        self._llm = build_chat_llm(
             temperature=0.0,  # judge must be deterministic across runs
-            google_api_key=settings.google_api_key,
             rate_limiter=_judge_rate_limiter,
-            max_retries=6,
+            max_tokens=JUDGE_MAX_TOKENS,
         )
 
     # --- required abstract methods -------------------------------------
 
-    def load_model(self) -> GeminiJudge:
+    def load_model(self) -> JudgeLLM:
         """DeepEval calls this before scoring; the client is built in __init__."""
         return self
 
     def get_model_name(self) -> str:
         """Recorded in eval_report.json so scores are traceable to a judge."""
-        return settings.gemini_judge_model
+        return settings.active_judge_model
 
     def generate(self, prompt: str) -> str:
         response = self._llm.invoke(prompt)
@@ -83,7 +84,7 @@ class GeminiJudge(DeepEvalBaseLLM):
 
 
 def _as_text(content) -> str:
-    """Gemini may return a plain string or a list of content blocks."""
+    """The model may return a plain string or a list of content blocks."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -94,13 +95,17 @@ def _as_text(content) -> str:
     return str(content)
 
 
-_judge: GeminiJudge | None = None
+_judge: JudgeLLM | None = None
 
 
-def get_judge() -> GeminiJudge:
+def get_judge() -> JudgeLLM:
     """Lazy singleton — importing tests/evaluate.py must not require an API
     key until we actually start scoring."""
     global _judge
     if _judge is None:
-        _judge = GeminiJudge()
+        _judge = JudgeLLM()
     return _judge
+
+
+# Backwards-compatible alias: the class used to be Gemini-only.
+GeminiJudge = JudgeLLM

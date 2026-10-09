@@ -64,8 +64,7 @@ METRIC_CLASSES = {
 def _api_key_ready() -> bool:
     """True only when a real key is configured — catches the untouched
     .env.example placeholder so users get a fix-it message, not a 400."""
-    key = settings.google_api_key.strip()
-    return bool(key) and not key.startswith("your-")
+    return settings.has_any_llm_key()
 
 
 # --------------------------------------------------------------------------
@@ -225,7 +224,20 @@ def score_case(metrics: dict, case: dict, result: dict) -> dict:
 
     scores: dict[str, dict] = {}
     for name, metric in metrics.items():
-        metric.measure(test_case)
+        # One metric blowing up must not throw away the whole run: a full
+        # evaluation costs many minutes of free-tier quota, and re-running it
+        # because the judge returned malformed JSON once is a poor trade. The
+        # failure is recorded and summarised separately instead of averaged in.
+        try:
+            metric.measure(test_case)
+        except Exception as exc:  # noqa: BLE001 - record, don't abort (NFR-D3)
+            scores[name] = {
+                "score": None,
+                "pass": False,
+                "error": f"{type(exc).__name__}: {exc}",
+                "reason": "",
+            }
+            continue
         scores[name] = {
             "score": round(float(metric.score), 4),
             "pass": bool(metric.success),
@@ -258,30 +270,96 @@ def routing_check(case: dict, result: dict) -> dict:
 def summarize(cases_detail: list[dict]) -> dict:
     """Per-metric averages, pass/fail counts, and overall routing accuracy."""
     metrics_summary = {}
+    errored = 0
     for name in METRIC_NAMES:
         values = [
             c["scores"][name] for c in cases_detail if name in c.get("scores", {})
         ]
         if not values:
             continue
-        passed = sum(1 for v in values if v["pass"])
+        # Metrics that failed to run are reported, never averaged in — a
+        # score of 0 and "the judge returned invalid JSON" are different
+        # claims, and the report must not conflate them.
+        errored += sum(1 for v in values if v.get("error"))
+        scored = [v for v in values if v.get("score") is not None]
+        if not scored:
+            metrics_summary[name] = {
+                "average_score": None,
+                "pass_count": 0,
+                "fail_count": 0,
+                "errors": len(values),
+                "threshold": 0.5,
+            }
+            continue
+        passed = sum(1 for v in scored if v["pass"])
         metrics_summary[name] = {
-            "average_score": round(sum(v["score"] for v in values) / len(values), 4),
+            "average_score": round(sum(v["score"] for v in scored) / len(scored), 4),
             "pass_count": passed,
-            "fail_count": len(values) - passed,
+            "fail_count": len(scored) - passed,
             "threshold": 0.5,
         }
+        if len(scored) != len(values):
+            metrics_summary[name]["errors"] = len(values) - len(scored)
 
     routing = [c["routing"] for c in cases_detail if "routing" in c]
     routing_pass = sum(1 for r in routing if r["pass"])
+    failed = [c for c in cases_detail if c.get("error")]
     return {
         "metrics": metrics_summary,
+        "metric_errors": errored,
+        "errored_cases": len(failed),
+        "errored_case_ids": [c["id"] for c in failed],
         "routing_accuracy": {
             "overall": round(routing_pass / len(routing), 4) if routing else 0.0,
             "correct": routing_pass,
             "total": len(routing),
         },
     }
+
+
+# Groq's free tier refuses a request when the rolling per-day budget is full
+# and tells you exactly when to come back ("try again in 1m20s") — that is when
+# enough old usage has expired to fit the request. Waiting it out is the
+# difference between a 10-case evaluation and a 0-case one: a naive run once
+# lost all ten results to this. Only throttling is retried; a genuinely broken
+# case should fail fast instead of burning three minutes of quota.
+CASE_RETRIES = 3
+RETRY_BACKOFF_S = (75, 150, 300)
+
+
+def _is_throttling(exc: BaseException) -> bool:
+    text = str(exc)
+    return "429" in text or "Rate limit" in text or "rate_limit_exceeded" in text
+
+
+def _case_with_retries(
+    case: dict, *, metrics: dict, skip_llm: bool
+) -> tuple[dict, dict, dict]:
+    """Run one gold case, waiting out free-tier throttling between attempts.
+
+    Returns ``(result, scores, routing)`` — the same triple the caller builds
+    on success. Re-raises the last exception when every attempt fails so the
+    caller can record it and move on to the next case.
+    """
+    last: Exception | None = None
+    for attempt in range(1, CASE_RETRIES + 1):
+        try:
+            result = run_case(case)
+            scores = {} if skip_llm else score_case(metrics, case, result)
+            return result, scores, routing_check(case, result)
+        except Exception as exc:
+            last = exc
+            if attempt == CASE_RETRIES or not _is_throttling(exc):
+                raise
+            wait = RETRY_BACKOFF_S[attempt - 1]
+            print(
+                f"throttled — waiting {wait}s "
+                f"(attempt {attempt}/{CASE_RETRIES})... ",
+                end="",
+                flush=True,
+            )
+            time.sleep(wait)
+    raise last if last else RuntimeError("unreachable")
 
 
 def main() -> int:
@@ -298,9 +376,10 @@ def main() -> int:
 
     if not _api_key_ready():
         print(
-            "ERROR: GOOGLE_API_KEY is not set (or is still the placeholder).\n"
-            "  1. Get a free key: https://aistudio.google.com/apikey\n"
-            "  2. Put it in .env as:  GOOGLE_API_KEY=AIza...\n"
+            "ERROR: no LLM API key is set (or it is still the placeholder).\n"
+            "  Set EITHER of these in .env — both have free tiers:\n"
+            "    GROQ_API_KEY=...      https://console.groq.com/keys\n"
+            "    GOOGLE_API_KEY=AIza…  https://aistudio.google.com/apikey\n"
             "See .env.example for the template.",
             file=sys.stderr,
         )
@@ -316,9 +395,30 @@ def main() -> int:
 
     for i, case in enumerate(cases, 1):
         print(f"  [{i}/{len(cases)}] {case['id']} ... ", end="", flush=True)
-        result = run_case(case)
-        scores = {} if args.skip_llm else score_case(metrics, case, result)
-        routing = routing_check(case, result)
+        # Free-tier LLMs 429 on both a per-minute and a rolling per-day budget,
+        # and a single failed case must not discard the other nine — an
+        # evaluation costs many minutes of quota and this is the only place
+        # the report is written. So: retry the *case* with enough backoff for
+        # the rolling window to free tokens, then record the failure and keep
+        # going. summarize() reports errored cases separately instead of
+        # averaging them in, so a partial run is never mistaken for a full one.
+        try:
+            result, scores, routing = _case_with_retries(
+                case, metrics=metrics, skip_llm=args.skip_llm
+            )
+        except Exception as exc:  # noqa: BLE001 — record, don't abort
+            details.append(
+                {
+                    "id": case["id"],
+                    "input": case["input"],
+                    "language": case.get("language"),
+                    "expected_output": case["expected_output"],
+                    "expected_sources": case["expected_sources"],
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            print(f"ERROR ({type(exc).__name__}) — skipped, continuing")
+            continue
 
         details.append(
             {
@@ -336,19 +436,24 @@ def main() -> int:
             }
         )
         mark = "PASS" if routing["pass"] else "FAIL"
-        avg = (
-            ""
-            if args.skip_llm
-            else f" | avg score {sum(v['score'] for v in scores.values()) / len(scores):.3f}"
-        )
+        scored = [v["score"] for v in scores.values() if v.get("score") is not None]
+        if args.skip_llm or not scores:
+            avg = ""
+        elif not scored:
+            avg = " | all metrics errored"
+        else:
+            avg = f" | avg score {sum(scored) / len(scored):.3f}"
+            if len(scored) != len(scores):
+                avg += f" ({len(scores) - len(scored)} errored)"
         print(f"routing={mark}{avg}")
 
     summary = summarize(details)
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "num_cases": len(details),
-        "judge_model": None if args.skip_llm else settings.gemini_judge_model,
-        "answer_model": settings.gemini_model,
+        "provider": settings.resolved_provider,
+        "judge_model": None if args.skip_llm else settings.active_judge_model,
+        "answer_model": settings.active_model,
         "embedding_model": settings.embedding_model,
         "skipped_llm_metrics": args.skip_llm,
         **summary,
@@ -363,14 +468,22 @@ def main() -> int:
 
     print("\n=== Summary ===")
     for name, stats in summary["metrics"].items():
+        avg = (
+            "n/a" if stats["average_score"] is None else f"{stats['average_score']:.3f}"
+        )
         print(
-            f"  {name:<22} avg={stats['average_score']:.3f}  "
+            f"  {name:<22} avg={avg}  "
             f"pass={stats['pass_count']}/{stats['pass_count'] + stats['fail_count']}"
         )
     ra = summary["routing_accuracy"]
     print(
         f"  {'routing_accuracy':<22} {ra['correct']}/{ra['total']} ({ra['overall']:.0%})"
     )
+    if summary["errored_cases"]:
+        # Surfaced so a partially-completed run is never mistaken for a
+        # complete one when reading outputs/eval_report.json.
+        ids = ", ".join(summary["errored_case_ids"])
+        print(f"  {'errored cases':<22} {summary['errored_cases']} ({ids})")
     print(f"\nReport written to {report_path}")
     return 0
 

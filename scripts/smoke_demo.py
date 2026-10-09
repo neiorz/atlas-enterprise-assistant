@@ -59,12 +59,11 @@ def _looks_cited(answer: str, hints: tuple[str, ...]) -> bool:
 
 
 def main() -> int:
-    if (
-        settings.google_api_key.strip().startswith("your-")
-        or not settings.google_api_key.strip()
-    ):
+    if not settings.has_any_llm_key():
         print(
-            "ERROR: set GOOGLE_API_KEY in .env first (https://aistudio.google.com/apikey)",
+            "ERROR: no LLM API key in .env. Set GROQ_API_KEY "
+            "(https://console.groq.com/keys) or GOOGLE_API_KEY "
+            "(https://aistudio.google.com/apikey) — both are free.",
             file=sys.stderr,
         )
         return 1

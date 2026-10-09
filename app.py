@@ -26,8 +26,55 @@ def _api_key_ready() -> bool:
     """True only when a real key is configured (not the .env.example placeholder)."""
     from src.settings import settings
 
-    key = settings.google_api_key.strip()
-    return bool(key) and not key.startswith("your-")
+    return settings.has_any_llm_key()
+
+
+# Failure modes that are *explainable and fixable* by the person reading the
+# chat window. NFR-D3 forbids stack traces, but a bare "something went wrong"
+# is only marginally better than one — these turn the common cases into a
+# sentence the user can act on.
+_FRIENDLY_HINTS = (
+    (
+        "already accessed by another instance",
+        (
+            "**The policy index is open in another process.**\n\n"
+            "Local Qdrant allows exactly one process at a time. An evaluation run "
+            "(`tests/evaluate.py`), an ingestion, or a second copy of the app is "
+            "holding it. Let that finish (or stop it), then try again."
+        ),
+    ),
+    (
+        "RateLimitError",
+        (
+            "**The LLM free tier is rate-limiting right now.**\n\n"
+            "Wait ~30 seconds and ask again — the free tier allows a limited "
+            "number of output tokens per minute."
+        ),
+    ),
+    (
+        "429",
+        "**The LLM free tier is rate-limiting right now.** Wait ~30 seconds and ask again.",
+    ),
+    (
+        "collection not found",
+        (
+            "**The policy index hasn't been built yet.**\n\n"
+            "Run `bash scripts/reset.sh` once, then reload this page."
+        ),
+    ),
+)
+
+
+def _friendly_error(exc: BaseException) -> str:
+    """Map an exception to a user-facing message with a fix (NFR-D3/D4)."""
+    text = f"{type(exc).__name__}: {exc}"
+    for needle, hint in _FRIENDLY_HINTS:
+        if needle in text:
+            return f"⚠️ {hint}"
+    return (
+        "⚠️ Something went wrong running that question "
+        f"(`{type(exc).__name__}`). Please try again in a moment."
+    )
 
 
 @cl.on_chat_start
@@ -36,13 +83,14 @@ async def on_chat_start() -> None:
     cl.user_session.set("session_id", str(uuid.uuid4()))
     if not _api_key_ready():
         # NFR-D4 spirit: a clear, actionable message instead of a traceback
-        # (or a cryptic Gemini 400) on the first question.
+        # (or a cryptic provider 400) on the first question.
         await cl.Message(
             content=(
                 "⚠️ **Missing API key.**\n\n"
-                "1. Get a free key at <https://aistudio.google.com/apikey>\n"
-                "2. Open `.env` and set `GOOGLE_API_KEY=AIza...`\n"
-                "3. Restart the app.\n\n"
+                "Set **either** of these in `.env` — both have free tiers:\n\n"
+                "1. `GROQ_API_KEY` — free key at <https://console.groq.com/keys>\n"
+                "2. `GOOGLE_API_KEY` — free key at <https://aistudio.google.com/apikey>\n\n"
+                "Then restart the app.\n\n"
                 "*(`.env` is gitignored — your key is never committed.)*"
             )
         ).send()
@@ -87,12 +135,7 @@ async def on_message(message: cl.Message) -> None:
         # surfaces as a friendly message instead of a stack trace. Narrowing
         # the except would let an unhandled error type reach the user.
         except Exception as exc:  # noqa: BLE001 — NFR-D3: never show a stack trace
-            await cl.Message(
-                content=(
-                    "⚠️ Something went wrong running that question "
-                    f"(`{type(exc).__name__}`). Please try again in a moment."
-                )
-            ).send()
+            await cl.Message(content=_friendly_error(exc)).send()
             return
         step.output = f"Domain: **{result.get('domain', '?')}**"
 
