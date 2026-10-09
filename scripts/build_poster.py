@@ -87,7 +87,7 @@ TITLE = f"""digraph Title {{
               <tr>
                 <td bgcolor="{BRAND}" color="{BRAND}" style="rounded"><font point-size="12" color="#FFFFFF"><b>Python 3.12</b></font></td>
                 <td bgcolor="{BRAND}" color="{BRAND}" style="rounded"><font point-size="12" color="#FFFFFF"><b>LangGraph</b></font></td>
-                <td bgcolor="{BRAND}" color="{BRAND}" style="rounded"><font point-size="12" color="#FFFFFF"><b>Gemini 2.0 Flash</b></font></td>
+                <td bgcolor="{BRAND}" color="{BRAND}" style="rounded"><font point-size="12" color="#FFFFFF"><b>Gemini / Groq LLM</b></font></td>
                 <td bgcolor="{BRAND}" color="{BRAND}" style="rounded"><font point-size="12" color="#FFFFFF"><b>bge-m3 (1024-d)</b></font></td>
                 <td bgcolor="{BRAND}" color="{BRAND}" style="rounded"><font point-size="12" color="#FFFFFF"><b>Qdrant</b></font></td>
                 <td bgcolor="{BRAND}" color="{BRAND}" style="rounded"><font point-size="12" color="#FFFFFF"><b>Chainlit</b></font></td>
@@ -136,7 +136,7 @@ AGENT = f"""digraph Agent {{
         idx    [label=<<b>&#8592; vector search</b><br/><font point-size="10">from Layer 1</font>>, shape=plaintext];
         start  [label="START\\nquestion + session_id", shape=oval, fillcolor="#DFF5E7", color="#0E9F6E"];
         memload[label="memory_loader\\nreset per-turn state"];
-        router [label="router\\nGemini structured output\\nhr / it / finance + confidence", fillcolor="#FFF3D6", color="#E0A100"];
+        router [label="router\\nLLM structured output\\nhr / it / finance + confidence", fillcolor="#FFF3D6", color="#E0A100"];
         fallback[label="multi (fallback)\\nconfidence &lt; 0.55\\nfan out to all domains", fillcolor="#FDE8E8", color="#D64545"];
         retriever[label="retriever\\ndomain-filtered top-k = 5\\nsources kept for citations", fillcolor="#E8EEFF"];
         agent  [label="agent\\ntool call or answer?", fillcolor="#FFF3D6", color="#E0A100"];
@@ -236,7 +236,7 @@ REQS = f"""digraph Reqs {{
               </tr>
               <tr>
                 <td align="left"><font color="#0E9F6E"><b>&#10003;</b></font></td>
-                <td align="left"><font point-size="12">Runtime cost $0 &#8212; free-tier Gemini + local models</font></td>
+                <td align="left"><font point-size="12">Runtime cost $0 &#8212; free-tier LLM + local models</font></td>
               </tr>
               <tr>
                 <td align="left"><font color="#0E9F6E"><b>&#10003;</b></font></td>
@@ -245,6 +245,10 @@ REQS = f"""digraph Reqs {{
               <tr>
                 <td align="left"><font color="#E0A100"><b>&#9888;</b></font></td>
                 <td align="left"><font point-size="12">RAM ~1.96 GB &#8212; bge-m3 misses the 1 GB target (documented)</font></td>
+              </tr>
+              <tr>
+                <td align="left"><font color="#E0A100"><b>&#9888;</b></font></td>
+                <td align="left"><font point-size="12">Warm turn 9.8 s &#8212; free-tier output cap, not code (documented)</font></td>
               </tr>
             </table>
           </td>
@@ -262,7 +266,7 @@ FOOTER = f"""digraph Footer {{
       <table border="1" cellborder="0" cellspacing="26" cellpadding="14" bgcolor="{NAVY}" color="{NAVY}" style="rounded">
         <tr>
           <td width="__SPACER__"> </td>
-          <td bgcolor="{NAVY_ROW}"><font point-size="13" color="{PALE}">TESTS</font><br/><font point-size="24" color="#FFFFFF"><b>25 passing</b></font><br/><font point-size="11" color="{PALE}">offline, no API key</font></td>
+          <td bgcolor="{NAVY_ROW}"><font point-size="13" color="{PALE}">TESTS</font><br/><font point-size="24" color="#FFFFFF"><b>29 passing</b></font><br/><font point-size="11" color="{PALE}">offline, no API key</font></td>
           <td bgcolor="{NAVY_ROW}"><font point-size="13" color="{PALE}">INGESTION</font><br/><font point-size="24" color="#FFFFFF"><b>69 s</b></font><br/><font point-size="11" color="{PALE}">30 docs &#8594; 122 chunks</font></td>
           <td bgcolor="{NAVY_ROW}"><font point-size="13" color="{PALE}">ARABIC RECALL</font><br/><font point-size="24" color="#FFFFFF"><b>0.701</b></font><br/><font point-size="11" color="{PALE}">FIN-009 ranked #1</font></td>
           <td bgcolor="{NAVY_ROW}"><font point-size="13" color="{PALE}">CODE HEALTH</font><br/><font point-size="24" color="#FFFFFF"><b>ruff + black</b></font><br/><font point-size="11" color="{PALE}">all src &#8804; 250 lines</font></td>

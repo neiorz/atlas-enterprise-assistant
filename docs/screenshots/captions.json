@@ -1,0 +1,37 @@
+{
+  "01-welcome": {
+    "title": "1 · Launch the assistant",
+    "detail": "Chainlit UI on localhost — ask in English or Arabic",
+    "seconds": 7
+  },
+  "02-routing": {
+    "title": "2 · Router (LangGraph node)",
+    "detail": "Typed RouterDecision: domain + confidence; <0.55 fans out to all domains",
+    "seconds": 9
+  },
+  "03-retrieval": {
+    "title": "3 · Domain-filtered retrieval",
+    "detail": "Qdrant + bge-m3 — 5 chunks, each tied to a real policy file",
+    "seconds": 9
+  },
+  "04-tool": {
+    "title": "4 · Agent decides, tool answers",
+    "detail": "Agent → typed tool with Pydantic-validated args; one retry on failure",
+    "seconds": 9
+  },
+  "05-cited-answer": {
+    "title": "5 · Answer with citations",
+    "detail": "Every claim ends in a Sources: list — the locked facts, verbatim",
+    "seconds": 11
+  },
+  "06-arabic": {
+    "title": "6 · Arabic, same corpus",
+    "detail": "One index for EN + AR; RTL rendering with citations intact",
+    "seconds": 11
+  },
+  "07-eval": {
+    "title": "7 · DeepEval grading",
+    "detail": "10 gold cases × 5 metrics + routing accuracy → outputs/eval_report.json",
+    "seconds": 12
+  }
+}

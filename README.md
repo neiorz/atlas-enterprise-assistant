@@ -7,8 +7,8 @@ routes the question, retrieves cited context from the official document corpus,
 optionally calls typed tools, and answers with sources — or clearly refuses when the
 answer isn't in the corpus.
 
-**Stack:** Python · LangGraph · Google Gemini (free tier) · Qdrant · `BAAI/bge-m3`
-embeddings · Chainlit · DeepEval — **total cost $0**.
+**Stack:** Python · LangGraph · LLM on a free tier (**Groq** or Google Gemini) ·
+Qdrant · `BAAI/bge-m3` embeddings · Chainlit · DeepEval — **total cost $0**.
 
 ![Atlas Industries — Enterprise Assistant: architecture, stack, requirements coverage and verified results](docs/architecture.png)
 
@@ -17,12 +17,38 @@ embeddings · Chainlit · DeepEval — **total cost $0**.
 
 ---
 
+## Demo
+
+![Walkthrough: launch, routing, retrieval, agent tool call, cited answer, Arabic RTL, DeepEval grading](docs/demo.gif)
+
+> Built from real screenshots of the running app — regenerate with
+> `python scripts/build_demo_gif.py` (per-frame timing lives in
+> `docs/screenshots/captions.json`; the brief wants a 60–90 s walkthrough).
+
+| | | |
+|---|---|---|
+| ![Welcome screen](docs/screenshots/01-welcome.png) | ![Router step](docs/screenshots/02-routing.png) | ![Retrieved sources step](docs/screenshots/03-retrieval.png) |
+| *1 · Launch* | *2 · Router* | *3 · Retrieval* |
+| ![Agent tool call step](docs/screenshots/04-tool.png) | ![Cited answer](docs/screenshots/05-cited-answer.png) | ![Arabic RTL answer](docs/screenshots/06-arabic.png) |
+| *4 · Agent + tools* | *5 · Cited answer* | *6 · Arabic (RTL)* |
+
+Each question renders its **agent replay** as Chainlit steps (FR-H2): the routing
+decision with its confidence, the chunks actually retrieved and their source files,
+any typed tool call, and the final answer with its `Sources:` list.
+
+![DeepEval grading run](docs/screenshots/07-eval.png)
+
+> Evaluation screenshots and `outputs/eval_report.json` come from
+> `python tests/evaluate.py`.
+
+---
+
 ## Quick Start (5 commands)
 
 ```bash
 git clone <this-repo> && cd atlas-enterprise-assistant
 python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
-cp .env.example .env          # then paste your GOOGLE_API_KEY into .env
+cp .env.example .env          # then paste GROQ_API_KEY or GOOGLE_API_KEY into .env
 python -m src.ingest && python -m src.vectorstore   # build the index (~1 min)
 chainlit run app.py           # chat UI at http://localhost:8000
 ```
@@ -35,13 +61,17 @@ bash scripts/reset.sh         # wipe + rebuild the vector index (FR-B8, ~70s)
 grep <run_id> outputs/run_logs.jsonl   # full timeline of one question
 ```
 
+> **One process at a time.** The local Qdrant index takes an exclusive lock, so
+> stop the app before running tests, the evaluation, or ingestion (and vice
+> versa). Set `QDRANT_URL` to run a hosted Qdrant if you need them parallel.
+
 ### Offline tests (no API key needed)
 
 ```bash
-pytest tests/ -q          # 25 tests, ~13s
+pytest tests/ -q          # 29 tests, ~45s
 ```
 
-- `tests/test_graph.py` stubs the three Gemini handles and drives the real
+- `tests/test_graph.py` stubs the three LLM handles and drives the real
   graph end-to-end: routing + low-confidence fallback, cross-turn memory,
   tool loop, Pydantic validation recovery, the step-limit fallback node, and
   run-log completeness.
@@ -81,7 +111,7 @@ outputs/run_logs.jsonl        session memory (MemorySaver,
 | Node | Responsibility |
 |---|---|
 | `memory_loader` | Reset per-turn state; prior turns stay in `chat_history` via the checkpointer |
-| `router` | Gemini structured output → `hr` / `it` / `finance` + confidence. Below 0.55 confidence → falls back to `"multi"` and fans retrieval out across all domains |
+| `router` | LLM structured output → `hr` / `it` / `finance` + confidence. Below 0.55 confidence → falls back to `"multi"` and fans retrieval out across all domains |
 | `retriever` | Domain-filtered top-k search (k from `settings.retrieval_top_k`) |
 | `agent` | Decides whether a tool call helps; bound by `max_tool_calls = 3` |
 | `tools` | Executes typed tools; Pydantic validation errors are fed back to the agent for **one** retry |
@@ -91,9 +121,20 @@ outputs/run_logs.jsonl        session memory (MemorySaver,
 
 ## Stack Choices (and why)
 
-- **LLM — Google Gemini (`gemini-2.0-flash`).** Free tier with generous limits, native
-  Arabic comprehension (3/10 eval cases are Arabic, and the judge must handle them),
-  and structured output for the router's typed `RouterDecision`.
+- **LLM — free tier, provider-agnostic (`LLM_PROVIDER=auto`).** Set `GROQ_API_KEY`
+  or `GOOGLE_API_KEY` (both free, both $0) and the client picks the first one that
+  is actually configured; force either with `LLM_PROVIDER=groq|gemini`.
+  - **Gemini (`gemini-2.0-flash`)** is the team's default: generous output
+    throughput, native Arabic comprehension (3/10 eval cases are Arabic, and the
+    judge must handle them), and structured output for the router's typed
+    `RouterDecision`.
+  - **Groq (`qwen/qwen3.8-27b`)** is the fallback that keeps the project runnable
+    with no Google account: ~0.3s per call, fluent Arabic, and it declines to
+    state figures it was not given — valuable because the locked hotel/taxi/dinner/
+    per-diem numbers are graded as hallucinations if invented.
+  - Free-tier LLM output is capped on every call (`max_tokens`). This is not
+    cosmetic: Groq rejects a request outright with a 429 if its *expected* output
+    exceeds the per-minute allowance, so an unset cap fails before generating.
 - **Embeddings — `BAAI/bge-m3` (1024-dim).** Multilingual by design: English and Arabic
   land in one semantic space, so an Arabic question retrieves Arabic documents without
   a second index. Runs locally on CPU.
@@ -110,8 +151,10 @@ outputs/run_logs.jsonl        session memory (MemorySaver,
   retrieval ranking is sensitive to this, so it lives in `settings.py`.
 - **Memory — LangGraph `MemorySaver`.** Thread ID == session ID, so a new chat is a new
   thread with empty memory. No external DB needed for in-session memory.
-- **Eval — DeepEval with a Gemini judge.** Same single free key as the answer path;
-  the judge reads Arabic so the three Arabic cases are scored fairly.
+- **Eval — DeepEval with an LLM judge.** Same single free key as the answer path (no
+  second provider, NFR-A1); the judge reads Arabic so the three Arabic cases are scored
+  fairly. Its own rate limiter, because 50 back-to-back judge calls would otherwise
+  starve live chat turns.
 
 ## Results
 
@@ -140,7 +183,7 @@ atlas-enterprise-assistant/
 │   ├── graph.py               ← LangGraph assembly + run_turn()
 │   ├── graph_nodes.py         ← input side: memory_loader, router, retriever, writer
 │   ├── agent_nodes.py         ← agentic side: agent ⇄ tools, answer, fallback
-│   ├── llm_setup.py           ← Gemini client + tool binding
+│   ├── llm_setup.py           ← LLM client (Groq/Gemini) + tool binding
 │   ├── judge.py               ← DeepEval judge wrapper (Arabic-capable)
 │   ├── retriever.py           ← domain-filtered + multi-domain retrieval
 │   ├── ingest.py              ← corpus loading, chunking, policy index
@@ -206,14 +249,32 @@ python -m src.ingest   # inspect chunk counts after corpus changes
   Qdrant ignores payload indexes (it filters by scan, instant at 122 points),
   so `create_payload_index` runs only when `QDRANT_URL` is set. If you move to
   a hosted Qdrant with a much larger corpus, this is already handled.
+- **The local Qdrant index is single-process.** In local (file) mode Qdrant
+  takes an exclusive lock on `data/qdrant_index`, so the app, the test suite,
+  `tests/evaluate.py` and ingestion **cannot run at the same time** — the
+  second process gets `Storage folder … is already accessed by another
+  instance`. Measured: 8 of 29 tests fail while the Chainlit app is open. The
+  app catches this and shows an actionable message instead of a stack trace
+  (`_friendly_error` in `app.py`); to run in parallel, set `QDRANT_URL` to a
+  hosted Qdrant server.
 - The corpus is only 30 documents, so retrieval is sensitive to chunk size —
   revisit `CHUNK_SIZE` if Contextual Recall drops.
 - Session memory is in-process: restarting the app clears conversations
   (cross-session persistence is an optional bonus, not implemented).
-- The Gemini free tier allows ~15 requests/minute; a graph turn makes up to
-  three LLM calls, so back-to-back turns can push a turn past NFR-B1's 8-second
-  budget while the rate limiter back-pressures (measured query latency itself
-  is ~1.6 s).
+- **NFR-B1 (8 s/turn) is met by an isolated warm turn, not under load.**
+  A graph turn makes up to three LLM calls, so per-turn latency is bounded by
+  the provider's *free-tier* output throughput, not by our code:
+  - **Groq (`qwen/qwen3.8-27b`)** meters **1,000 output tokens/minute** and
+    rejects any request whose *expected* output exceeds it (429 before a
+    single token is generated — hence `max_tokens` on every client). One turn
+    costs ~3,500 input / ~800 output tokens, so a warm isolated turn measures
+    **9.8 s**, and back-to-back turns in the same minute are throttled to
+    ~30 s while the window refills.
+  - Gemini's free tier (~15 requests/minute) is what the team originally chose
+    and is the recommended provider when a Google key is available.
+  - Query latency itself (retrieval + prompt build) is **~1.6 s**; the rest is
+    model generation. To genuinely clear 8 s sustained, either a paid tier or
+    a larger free-tier token allowance is required.
 
 ## License
 

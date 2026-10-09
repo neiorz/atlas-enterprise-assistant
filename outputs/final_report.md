@@ -23,17 +23,17 @@ Three layers, matching the brief:
 
 | Choice | Alternative considered | Why this one |
 |---|---|---|
-| **Gemini 2.0 Flash** | Groq, Ollama, OpenAI | Free tier + native Arabic (3/10 cases are Arabic; judge must score them fairly). Structured output powers the typed router. |
+| **Gemini 2.0 Flash (default) / Groq `qwen3.8-27b` (fallback)** | Ollama, OpenAI, paid tiers | Both free ⇒ project stays at $0. Gemini: generous output throughput + native Arabic (3/10 cases are Arabic; judge must score them fairly). Groq fallback keeps the project runnable with no Google account, measured ~0.3 s/call, and it declines to state figures it wasn't given — valuable because the locked numbers are graded as hallucinations if invented. |
 | **bge-m3 embeddings** | multilingual-e5, Cohere | One embedding space for EN + AR without a second index; runs on CPU; explicitly recommended by the brief. |
 | **Qdrant (local)** | FAISS, Chroma | Keyword payload indexes give free `domain`/`language` filtering (FR-C1) with no server process; cloud URL is a one-line env switch. |
 | **Chainlit** | Streamlit, Gradio | Step rendering is exactly what FR-H2 asks for (visible routing/retrieval/tool steps); handles RTL text. |
 | **pypdf** | pdfplumber, unstructured | pdfplumber/pdfminer reverse every line of the Arabic PDFs (verified by hand on all 9 PDFs). |
-| **DeepEval + Gemini judge** | OpenAI judge | Same single free key; Arabic-capable judge as required by FR-J5. |
+| **DeepEval + same-LLM judge** | OpenAI judge | Same single free key (NFR-A1); Arabic-capable judge as required by FR-J5. |
 | **Hand-rolled splitter** | LangChain RecursiveCharacterSplitter | 30-doc corpus — boundaries must be inspectable; sentence-boundary logic covers Arabic punctuation too. |
 
 ## 3. LangGraph Design
 
-- **Router:** Gemini structured output → `RouterDecision(domain, confidence, reasoning)`.
+- **Router:** LLM structured output → `RouterDecision(domain, confidence, reasoning)`.
   Confidence < 0.55 ⇒ domain = `"multi"` ⇒ retrieval fans out across all three domains
   (FR-D2 fallback: *broader and safer* rather than a wrong narrow guess).
 - **State:** `AtlasState` TypedDict; `chat_history` uses `operator.add` so turns
@@ -89,6 +89,10 @@ _Fill from `outputs/eval_report.json`:_
   `python scripts/mem_check.py`.
 - 30-document corpus ⇒ retrieval ranking is chunk-size sensitive.
 - In-process memory only; restart clears sessions (cross-session persistence = bonus, not done).
-- Free-tier Gemini (~15 req/min) can push a turn past the 8s latency target
-  when turns are back-to-back; a single warm turn is ~1.6s of retrieval + LLM.
+- Free-tier LLM throughput caps sustained NFR-B1 latency: Groq's 1,000
+  output tokens/minute means a warm isolated turn measures ~9.8 s and
+  back-to-back turns throttle to ~30 s, while query latency itself (retrieval
+  + prompt build) is only ~1.6 s. Gemini's free tier is the recommended
+  provider when a Google key is available. Per-request `max_tokens` is
+  mandatory on Groq — without it the API 429s before generating anything.
 - No reranker (FR-C5 optional, not implemented).
