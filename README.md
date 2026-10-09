@@ -33,12 +33,18 @@ grep <run_id> outputs/run_logs.jsonl   # full timeline of one question
 ### Offline tests (no API key needed)
 
 ```bash
-pytest tests/test_graph.py -q
+pytest tests/ -q          # 25 tests, ~13s
 ```
 
-These stub the three Gemini handles and drive the real graph end-to-end:
-routing + low-confidence fallback, cross-turn memory, tool loop, Pydantic
-validation recovery, the step-limit fallback node, and run-log completeness.
+- `tests/test_graph.py` stubs the three Gemini handles and drives the real
+  graph end-to-end: routing + low-confidence fallback, cross-turn memory,
+  tool loop, Pydantic validation recovery, the step-limit fallback node, and
+  run-log completeness.
+- `tests/test_evaluate.py` stubs the graph and judge to verify the DeepEval
+  script itself: gold-case loading (FR-J1), gold-context assembly (FR-J2),
+  routing accuracy (FR-J4), the full `eval_report.json` shape (FR-J6), both
+  CLI modes, and the friendly no-key error path.
+
 Use them to confirm a refactor didn't break the wiring before spending quota.
 
 ---
@@ -142,6 +148,7 @@ atlas-enterprise-assistant/
 │   └── logging_setup.py       ← run_id + structured JSONL events
 ├── tests/
 │   ├── evaluate.py            ← DeepEval script → outputs/eval_report.json
+│   ├── test_evaluate.py       ← offline tests for the eval script (FR-J)
 │   ├── test_graph.py          ← offline wiring tests (stubbed LLM, no key)
 │   └── eval_cases.jsonl       ← 10 gold questions
 ├── data/
@@ -158,6 +165,13 @@ atlas-enterprise-assistant/
     ├── smoke_demo.py          ← the brief's 3-turn demo scenario, checked
     └── mem_check.py           ← NFR-B4 memory measurement
 ```
+
+**Mapping to the brief's suggested tree** (it says "adapt it to match the
+stack you pick"): `router.py` lives in `graph_nodes.py` (`router_node`), and
+`memory.py` is the `MemorySaver` checkpointer wired in `graph.py` — memory
+was inlined rather than given its own file because LangGraph's checkpointer
+already owns the persistence, so a wrapper module would only re-export it.
+Everything else matches one-for-one.
 
 ## Development
 
