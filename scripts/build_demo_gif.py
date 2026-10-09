@@ -133,7 +133,8 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     # loop=0 => infinite loop; disposal=2 => full-frame redraw (no ghosting
     # when a frame is shorter than the previous one).
-    frames[0].save(
+    # frames holds (image, duration) tuples, so index the image out of frame 0.
+    frames[0][0].save(
         args.out,
         save_all=True,
         append_images=[f for f, _ in frames[1:]],
@@ -145,9 +146,11 @@ def main() -> int:
 
     total = sum(s for _, s in frames)
     size_kb = args.out.stat().st_size // 1024
-    print(
-        f"{args.out.relative_to(ROOT)}: {len(frames)} frames, {total:.0f}s, {size_kb} KB"
-    )
+    try:
+        shown = args.out.relative_to(ROOT)
+    except ValueError:
+        shown = args.out  # --out was pointed outside the repo
+    print(f"{shown}: {len(frames)} frames, {total:.0f}s, {size_kb} KB")
     return 0
 
 
