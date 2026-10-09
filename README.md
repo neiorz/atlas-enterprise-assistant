@@ -19,27 +19,21 @@ Qdrant · `BAAI/bge-m3` embeddings · Chainlit · DeepEval — **total cost $0**
 
 ## Demo
 
-![Walkthrough: launch, routing, retrieval, agent tool call, cited answer, Arabic RTL, DeepEval grading](docs/demo.gif)
+![Atlas Industries — Enterprise Assistant: architecture, stack, requirements coverage and verified results](docs/architecture.png)
 
-> Built from real screenshots of the running app — regenerate with
-> `python scripts/build_demo_gif.py` (per-frame timing lives in
-> `docs/screenshots/captions.json`; the brief wants a 60–90 s walkthrough).
+![Welcome screen](docs/screenshots/01-welcome.png)
 
-| | | |
-|---|---|---|
-| ![Welcome screen](docs/screenshots/01-welcome.png) | ![Router step](docs/screenshots/02-routing.png) | ![Retrieved sources step](docs/screenshots/03-retrieval.png) |
-| *1 · Launch* | *2 · Router* | *3 · Retrieval* |
-| ![Agent tool call step](docs/screenshots/04-tool.png) | ![Cited answer](docs/screenshots/05-cited-answer.png) | ![Arabic RTL answer](docs/screenshots/06-arabic.png) |
-| *4 · Agent + tools* | *5 · Cited answer* | *6 · Arabic (RTL)* |
+**Agent replay** — every question renders its full LangGraph run as Chainlit
+steps (FR-H2): the routing decision with its confidence, the chunks actually
+retrieved and their source files, any typed tool call, and the final answer
+with its `Sources:` list.
 
-Each question renders its **agent replay** as Chainlit steps (FR-H2): the routing
-decision with its confidence, the chunks actually retrieved and their source files,
-any typed tool call, and the final answer with its `Sources:` list.
+```bash
+python scripts/build_demo_gif.py     # rebuild docs/demo.gif from docs/screenshots/
+```
 
-![DeepEval grading run](docs/screenshots/07-eval.png)
-
-> Evaluation screenshots and `outputs/eval_report.json` come from
-> `python tests/evaluate.py`.
+> Generated from source — per-frame timing lives in
+> `docs/screenshots/captions.json` (the brief wants a 60–90 s walkthrough).
 
 ---
 
@@ -48,7 +42,8 @@ any typed tool call, and the final answer with its `Sources:` list.
 ```bash
 git clone <this-repo> && cd atlas-enterprise-assistant
 python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
-cp .env.example .env          # then paste GROQ_API_KEY or GOOGLE_API_KEY into .env
+cp -n .env.example .env      # -n won't overwrite an existing .env (keeps your key)
+                              # then put GROQ_API_KEY or GOOGLE_API_KEY in it
 python -m src.ingest && python -m src.vectorstore   # build the index (~1 min)
 chainlit run app.py           # chat UI at http://localhost:8000
 ```
