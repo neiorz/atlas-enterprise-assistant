@@ -19,6 +19,8 @@ Qdrant · `BAAI/bge-m3` embeddings · Chainlit · DeepEval — **total cost $0**
 
 ## Demo
 
+![Walkthrough: launch, routing, retrieval, agent tool call, cited answer](docs/demo.gif)
+
 **Agent replay** — every question renders its full LangGraph run as Chainlit
 steps (FR-H2): the routing decision, the chunks actually retrieved and their
 source files, any typed tool call with its validated arguments, and the final
