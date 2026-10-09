@@ -2,27 +2,27 @@
   "01-welcome": {
     "title": "1 · Launch the assistant",
     "detail": "Chainlit UI on localhost — ask in English or Arabic",
-    "seconds": 7
+    "seconds": 8
   },
   "02-routing": {
     "title": "2 · Router (LangGraph node)",
-    "detail": "Typed RouterDecision: domain + confidence; <0.55 fans out to all domains",
-    "seconds": 9
+    "detail": "Typed RouterDecision — confidence below 0.55 fans out to every domain",
+    "seconds": 11
   },
   "03-retrieval": {
     "title": "3 · Domain-filtered retrieval",
-    "detail": "Qdrant + bge-m3 — 5 chunks, each tied to a real policy file",
-    "seconds": 9
+    "detail": "Qdrant + bge-m3 — each chunk tied to a real policy file, EN and AR",
+    "seconds": 11
   },
   "04-tool": {
     "title": "4 · Agent decides, tool answers",
-    "detail": "Agent → typed tool with Pydantic-validated args; one retry on failure",
-    "seconds": 9
+    "detail": "Typed args, cap checked (1,500 EGP), result cites its source file",
+    "seconds": 11
   },
   "05-cited-answer": {
     "title": "5 · Answer with citations",
     "detail": "Every claim ends in a Sources: list — the locked facts, verbatim",
-    "seconds": 11
+    "seconds": 12
   },
   "06-arabic": {
     "title": "6 · Arabic, same corpus",
