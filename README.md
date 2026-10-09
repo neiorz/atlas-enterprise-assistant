@@ -10,6 +10,11 @@ answer isn't in the corpus.
 **Stack:** Python · LangGraph · Google Gemini (free tier) · Qdrant · `BAAI/bge-m3`
 embeddings · Chainlit · DeepEval — **total cost $0**.
 
+![Atlas Industries — Enterprise Assistant: architecture, stack, requirements coverage and verified results](docs/architecture.png)
+
+> Generated from source — edit `scripts/build_poster.py` and re-run
+> `python scripts/build_poster.py` after any architecture change.
+
 ---
 
 ## Quick Start (5 commands)
