@@ -19,20 +19,29 @@ Qdrant · `BAAI/bge-m3` embeddings · Chainlit · DeepEval — **total cost $0**
 
 ## Demo
 
-![Atlas Industries — Enterprise Assistant: architecture, stack, requirements coverage and verified results](docs/architecture.png)
-
-![Welcome screen](docs/screenshots/01-welcome.png)
-
 **Agent replay** — every question renders its full LangGraph run as Chainlit
-steps (FR-H2): the routing decision with its confidence, the chunks actually
-retrieved and their source files, any typed tool call, and the final answer
-with its `Sources:` list.
+steps (FR-H2): the routing decision, the chunks actually retrieved and their
+source files, any typed tool call with its validated arguments, and the final
+answer with its `Sources:` list.
+
+| | | |
+|---|---|---|
+| ![Welcome screen](docs/screenshots/01-welcome.png) | ![Router step expanded to the decided domain](docs/screenshots/02-routing.png) | ![Retrieved sources step listing four policy files](docs/screenshots/03-retrieval.png) |
+| *1 · Launch* | *2 · Router* | *3 · Retrieval* |
+| ![Tool step with typed arguments and the cap it checked](docs/screenshots/04-tool.png) | ![Answer carrying the 1,500 EGP locked fact and its Sources list](docs/screenshots/05-cited-answer.png) | |
+| *4 · Agent + tools* | *5 · Cited answer* | |
+
+Each frame is a screenshot of the running app, not a mock — the routing step
+shows the domain the graph actually chose, the retrieval step lists the files
+the index actually returned (including an Arabic one), and the tool step shows
+the arguments the model passed alongside `cap_per_unit: 1500.0` and
+`over_cap: False`.
 
 ```bash
 python scripts/build_demo_gif.py     # rebuild docs/demo.gif from docs/screenshots/
 ```
 
-> Generated from source — per-frame timing lives in
+> Built from source, like the poster — per-frame timing lives in
 > `docs/screenshots/captions.json` (the brief wants a 60–90 s walkthrough).
 
 ---
